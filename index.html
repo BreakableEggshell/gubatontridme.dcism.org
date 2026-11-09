@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CSV to JSON</title>
+  <style>
+    pre {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+  </style>
+</head>
+<body>
+  <h1>Tricia D. Gubaton</h1>
+  <h3><i>IT 3206N MW 6:00 - 8:00PM</i></h3>
+
+  <h1>CSV to JSON</h1>
+
+  <h2>1. Upload CSV</h2>
+  <input type="file" id="csvFile" accept=".csv">
+  <button type="button" id="convertButton">Convert CSV to JSON</button>
+
+  <h2>2. JSON Display</h2>
+  <pre id="jsonOutput">Upload a CSV file and click Convert CSV to JSON.</pre>
+
+  <script>
+    const REQUIRED_COLUMNS = [
+      "student_id", "first_name", "last_name", "course",
+      "year_level", "email", "tuition_balance"
+    ];
+
+    const PROGRAM_NAMES = {
+      BSIT: "Bachelor of Science in Information Technology",
+      BSCS: "Bachelor of Science in Computer Science"
+    };
+
+    const output = document.getElementById("jsonOutput");
+
+    function parseCSV(text) {
+      const rows = [];
+      let row = [];
+      let value = "";
+      let inQuotes = false;
+
+      for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+
+        if (inQuotes) {
+          if (char === '"' && text[i + 1] === '"') {
+            value += '"';
+            i++;
+          } else if (char === '"') {
+            inQuotes = false;
+          } else {
+            value += char;
+          }
+        } else if (char === '"') {
+          inQuotes = true;
+        } else if (char === ",") {
+          row.push(value);
+          value = "";
+        } else if (char === "\n") {
+          row.push(value);
+          rows.push(row);
+          row = [];
+          value = "";
+        } else if (char !== "\r") {
+          value += char;
+        }
+      }
+
+      row.push(value);
+      rows.push(row);
+
+      return rows.filter(cells => cells.some(cell => cell.trim() !== ""));
+    }
+
+    function capitalizeName(value) {
+      return value.trim().toLowerCase()
+        .replace(/(^|[\s-])(\p{L})/gu, (match, before, letter) => before + letter.toUpperCase());
+    }
+
+    function toInteger(value, column, rowNumber) {
+      if (!/^\d+$/.test(value.trim())) {
+        throw new Error(`Row ${rowNumber}: ${column} must be a whole number, got "${value}".`);
+      }
+      return Number(value);
+    }
+
+    function toBalance(value, rowNumber) {
+      const balance = Number(value);
+      if (value.trim() === "" || !Number.isFinite(balance)) {
+        throw new Error(`Row ${rowNumber}: tuition_balance must be a number, got "${value}".`);
+      }
+      return Number(balance.toFixed(2));
+    }
+
+    function toProgram(value, rowNumber) {
+      const code = value.trim().toUpperCase();
+      if (!Object.hasOwn(PROGRAM_NAMES, code)) {
+        throw new Error(`Row ${rowNumber}: unknown course "${value}".`);
+      }
+      return PROGRAM_NAMES[code];
+    }
+
+    function transformRow(record, rowNumber) {
+      return {
+        studentId: toInteger(record.student_id, "student_id", rowNumber),
+        firstName: capitalizeName(record.first_name),
+        lastName: capitalizeName(record.last_name),
+        program: toProgram(record.course, rowNumber),
+        yearLevel: toInteger(record.year_level, "year_level", rowNumber),
+        emailAddress: record.email.trim().toLowerCase(),
+        outstandingBalance: toBalance(record.tuition_balance, rowNumber)
+      };
+    }
+
+    function csvToJSON(csvText) {
+      const rows = parseCSV(csvText.replace(/^﻿/, ""));
+
+      if (rows.length === 0) {
+        throw new Error("The CSV file is empty.");
+      }
+
+      const headers = rows[0].map(header => header.trim());
+      const missing = REQUIRED_COLUMNS.filter(column => !headers.includes(column));
+
+      if (missing.length > 0) {
+        throw new Error("Missing CSV column(s): " + missing.join(", "));
+      }
+
+      if (rows.length === 1) {
+        throw new Error("The CSV file has no student rows.");
+      }
+
+      const students = rows.slice(1).map((cells, index) => {
+        const rowNumber = index + 2;
+
+        if (cells.length !== headers.length) {
+          throw new Error(`Row ${rowNumber}: expected ${headers.length} values, got ${cells.length}.`);
+        }
+
+        const record = {};
+        headers.forEach((header, column) => {
+          record[header] = cells[column];
+        });
+        return transformRow(record, rowNumber);
+      });
+
+      return JSON.stringify(students, null, 2).replace(
+        /"outstandingBalance": (-?[\d.]+)/g,
+        (match, amount) => `"outstandingBalance": ${Number(amount).toFixed(2)}`
+      );
+    }
+
+    function convertCSV() {
+      const file = document.getElementById("csvFile").files[0];
+
+      if (!file) {
+        output.textContent = "Please upload a CSV file first.";
+        return;
+      }
+
+      const reader = new FileReader();
+
+      reader.onload = function () {
+        try {
+          output.textContent = csvToJSON(reader.result);
+        } catch (error) {
+          output.textContent = "Error: " + error.message;
+        }
+      };
+
+      reader.onerror = function () {
+        output.textContent = "Unable to read the selected file.";
+      };
+
+      reader.readAsText(file);
+    }
+
+    document.getElementById("convertButton").addEventListener("click", convertCSV);
+  </script>
+</body>
+</html>
